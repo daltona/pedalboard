@@ -47,7 +47,8 @@ int select_cc_menu(int key, struct cc_data * data)
     return MENU_CONTINUE;    
 }
 
-int main_menu(int key) {
+int main_menu(int key) 
+{
     char tmp[16];
 
     memset(tmp, ' ', 16);
@@ -69,5 +70,38 @@ int main_menu(int key) {
     } 
 }
 
+static char * menu_items[] = {
+    "Midi Chnl",
+    "Brightness"
+};
+#define MENU_ITEM_COUNT (sizeof(menu_items) / sizeof(char *))
 
+int run_menu(int key) 
+{
+    static state = 0;
+    print_header("Main Menu");
 
+    switch (state) {
+    case STATE_MAIN:
+        break;
+    }
+}
+
+unsigned uint16_t leds_state;
+
+int getKey() {
+    return -1;
+}
+
+void loop() {
+    int key = getKey();
+    if (key > 0) {
+        run_menu(key);
+    }
+    if (midimsg = midiRead()) {
+        switch (midimsg->type) {
+            case MIDI_CC:
+                break;
+        }       
+    }
+}
