@@ -162,7 +162,7 @@ int main_menu(int key)
         if (key < 0x80 && key > 0) {
             cc_data.key = key;
             select_cc_menu(key);
-        } else if ( selected_key != -1 ){
+        } else if ( cc_data.key != -1 ){
             int ret = select_cc_menu(key);
             if (ret == MENU_EXIT) return MENU_EXIT;
         }
@@ -170,7 +170,7 @@ int main_menu(int key)
     }
     
     if (cc_data.key != -1) {
-      snprintf(dispbuf, 16, "Button: %2d", selected_key);
+      snprintf(dispbuf, 16, "Button: %2d", cc_data.key);
     } else {
       sprintf(dispbuf, "Button: <Press>");
     }
