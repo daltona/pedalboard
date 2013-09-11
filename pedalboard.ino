@@ -16,44 +16,13 @@ byte colPins[COLS] = {13, 12, 11, 10, 9}; //connect to the column pinouts of the
 Keypad keypad = Keypad( makeKeymap(keys), rowPins, colPins, ROWS, COLS );
 static Deuligne lcd;
 
-void setup(){
-  Wire.begin(); // join i2c
-  lcd.init(); // LCD init
-
-  lcd.clear(); // Clear Display
-
-  lcd.backLight(true); // Backlight ON
-
-  lcd.setCursor(0,0); // Place cursor row 6, 1st line (counting from 0)
-  lcd.print("Pedalboard 1.0");
-  delay(1000);
-
-  Serial.begin(9600);
-}
-  
-static char tmp[16];
-
-
-/**
- * Code for the custom made MIDI pedalBoard from Alex.
- *
- */
-
-#define MENU_ENTER      0xA0
-#define MENU_EXIT       0xA1
-
-#define MENU_CONTINUE   0xB0
-#define KEY_UP          0x81
-#define KEY_DOWN        0x82
-#define KEY_LEFT        0x83
-#define KEY_RIGHT       0x80
-#define KEY_ENTER       0x84
-
 struct cc_data {
   int key;
   int number;
   char type;
 } cc_data;
+
+struct cc_data buttons_config[15];
 
 void load_data(int key) {
   Serial.print("Load data for: "); Serial.print(key);
@@ -77,7 +46,47 @@ void save_data(int key) {
 
   EEPROM.write(key*2, cc_data.type);
   EEPROM.write(key*2+1, cc_data.number);
+  buttons_config[key - 1] = cc_data;
 }
+
+void setup(){
+  Wire.begin(); // join i2c
+  lcd.init(); // LCD init
+
+  lcd.clear(); // Clear Display
+
+  lcd.backLight(true); // Backlight ON
+
+  lcd.setCursor(0,0); // Place cursor row 6, 1st line (counting from 0)
+  lcd.print("Pedalboard 1.0");
+  delay(1000);
+
+  Serial.begin(9600);
+
+  for (int i =1; i < 16; i++) {
+    load_data(i);
+    buttons_config[i-1] = cc_data;
+  }
+  lcd.clear();
+}
+  
+static char tmp[16];
+
+
+/**
+ * Code for the custom made MIDI pedalBoard from Alex.
+ *
+ */
+
+#define MENU_ENTER      0xA0
+#define MENU_EXIT       0xA1
+
+#define MENU_CONTINUE   0xB0
+#define KEY_UP          0x81
+#define KEY_DOWN        0x82
+#define KEY_LEFT        0x83
+#define KEY_RIGHT       0x80
+#define KEY_ENTER       0x84
 
 int select_cc_menu(int key) 
 {
@@ -210,8 +219,7 @@ void loop() {
     struct midi_msg * midimsg;
     static int state = STATE_RUN;
     char tmp[16];
-    int key = getKey();
-    
+    int key = getKey();    
 
       switch(state) {
         case STATE_RUN:
@@ -222,16 +230,21 @@ void loop() {
             break;
           } else if ( key > 0 && key < 0x80 ){
             patch = key;
+            lcd.setCursor(10, 0);
+            sprintf(tmp, "%cC:%3d", buttons_config[key-1].type, buttons_config[key-1].number);
+            lcd.print(tmp);
           }
           lcd.setCursor(0,0); 
-          lcd.print("RUN             ");
+          lcd.print("RUN ");
           lcd.setCursor(0,1);
           snprintf(tmp, 16, "B %02d P %02d", bank, patch);
           lcd.print(tmp);        
           break;
        case STATE_MENU:
-          if (MENU_EXIT == run_menu(key))
+          if (MENU_EXIT == run_menu(key)) {
             state = STATE_RUN;        
+            lcd.clear();
+          }
           break;
       }
 
