@@ -30,13 +30,13 @@ const byte ROWS = 3; //three rows
 const byte COLS = 5; //five columns
 char keys[ROWS][COLS] = {
   {
-    1,2,3,4,5  }
+    1,2,3,4,5      }
   ,
   {
-    6,7,8,9,10  }
+    6,7,8,9,10      }
   ,
   {
-    11,12,13,14, 15  }
+    11,12,13,14, 15      }
   ,
 };
 byte rowPins[ROWS] = {
@@ -56,7 +56,8 @@ struct button_data {
   int number;
   int state;
   char type;
-} cc_data;
+} 
+cc_data;
 
 struct button_data buttons_config[15];
 
@@ -124,7 +125,7 @@ void setup(){
     buttons_config[i-1] = cc_data;
   }
   lcd.clear();
-  
+  MIDI.setInputChannel(MIDI_CHANNEL_OMNI);
   MIDI.turnThruOff();
   MIDI.setHandleClock(handleClock);
 }
@@ -241,14 +242,35 @@ int getKey() {
   return -1;
 }
 
-void handle_button(struct button_data * d) {
-  if (d->type == 'P') {
-    MIDI.sendProgramChange(d->number, midi_channel);
-  } else if (d->type == 'C') {
-    MIDI.sendControlChange(d->number, d->state == 0 ? 1 : 0, midi_channel);
+#define EXPRESSION_COUNT 2
+
+struct expression_data {
+  int pin;
+  int value;
+  int cc;
+} 
+exp_data[EXPRESSION_COUNT];
+
+void handle_analog() 
+{
+  for (int i = 0; i < EXPRESSION_COUNT; i++) {
+    int newValue = analogRead(exp_data[i].pin);
+    if(exp_data[i].value != newValue) {
+      exp_data[i].value = newValue;
+      MIDI.sendControlChange(exp_data[i].cc, exp_data[i].value, midi_channel);  
+    }
   }
 }
 
+void handle_button(struct button_data * d) 
+{
+  if (d->type == 'P') {
+    MIDI.sendProgramChange(d->number, midi_channel);
+  } 
+  else if (d->type == 'C') {
+    MIDI.sendControlChange(d->number, d->state == 0 ? 1 : 0, midi_channel);
+  }
+}
 
 void loop() {
   struct midi_msg * midimsg;
@@ -269,7 +291,7 @@ void loop() {
       lcd.setCursor(10, 0);
       sprintf(dispbuf, "%cC:%3d", buttons_config[key-1].type, buttons_config[key-1].number);
       lcd.print(dispbuf);
-      
+
     }
     lcd.setCursor(0,0); 
     lcd.print("RUN ");
@@ -285,7 +307,10 @@ void loop() {
     break;
   }
 
+  handle_analog();
   MIDI.read();
-  
+
 }
+
+
 
