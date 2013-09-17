@@ -19,9 +19,10 @@
 #define KEY_RIGHT       0x80
 #define KEY_ENTER       0x84
 
+#define DEBUG
 
 /** display buffer. */  
-static char dispbuf[16];
+static char dispbuf[20];
 
 
 /* KEYPAD SECTION */
@@ -116,6 +117,8 @@ int select_cc_menu(int key)
 {
     struct cc_data * data = &cc_data;
 
+    Serial.print("select_cc_menu: "); Serial.println(key);
+
     memset(dispbuf, ' ', 16);
     switch(key) {
     case MENU_ENTER:
@@ -142,14 +145,16 @@ int select_cc_menu(int key)
         if (key > 0 && key < 0x80) 
           load_data(key);
     }
-    sprintf(dispbuf, "%cC# %3d         ", data->type, data->number);
+    snprintf(dispbuf, 16, "%cC# %3d         ", data->type, data->number);
     lcd.setCursor(0, 1);
     lcd.print(dispbuf);
+    Serial.println("select_cc_menu exit CONTINUE");
     return MENU_CONTINUE;    
 }
 
 int main_menu(int key) 
 {
+  int ret = MENU_CONTINUE;
     switch (key) {
     case MENU_ENTER:
         cc_data.key = -1;
@@ -161,9 +166,10 @@ int main_menu(int key)
     default:
         if (key < 0x80 && key > 0) {
             cc_data.key = key;
-            select_cc_menu(key);
+            ret = select_cc_menu(key);
         } else if ( cc_data.key != -1 ){
-            int ret = select_cc_menu(key);
+            ret = select_cc_menu(key);
+            Serial.print("return: "); Serial.println(ret);
             if (ret == MENU_EXIT) return MENU_EXIT;
         }
         break;
@@ -176,6 +182,7 @@ int main_menu(int key)
     }
     lcd.setCursor(0, 0);
     lcd.print(dispbuf);
+  return ret;
 }
 
 int run_menu(int key) 
@@ -226,6 +233,10 @@ void loop() {
     struct midi_msg * midimsg;
     static int state = STATE_RUN;
     int key = getKey();    
+
+  if (key != -1) {
+    Serial.print("Key: "); Serial.println(key);
+  }
 
       switch(state) {
         case STATE_RUN:
