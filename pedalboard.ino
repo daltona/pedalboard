@@ -48,6 +48,8 @@ static Deuligne lcd;
 
 byte midi_channel = 1;
 
+static uint16_t led_state = 0;
+
 /** Switch configuration data */
 struct button_data
 {
@@ -376,10 +378,21 @@ void latch_aux_disp()
     digitalWrite(aux_disp_latch, 0);
 }
 
-void latch_leds() 
-{
+void update_leds() {
+
+    /*latch*/
     digitalWrite(led_latch, 1);
     digitalWrite(led_latch, 0);
+}
+
+int set_led(int led) {
+    led_state |= (1<<led);    
+    update_leds();
+}
+
+int clear_led(int led) {
+    led_state &= ~(1<<led);
+    update_leds();    
 }
 
 void aux_disp_print(char * str) {
