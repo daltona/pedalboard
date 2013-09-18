@@ -2,9 +2,9 @@
  * Code for the custom made MIDI pedalBoard from Alex.
  *
  */
+#include <Keypad.h>
 #include <Wire.h>
 #include <Deuligne.h>
-#include <Keypad.h>
 #include <EEPROM.h>
 #include <MIDI.h>
 
@@ -60,6 +60,22 @@ struct button_data {
 } 
 cc_data;
 
+#define EXPRESSION_COUNT 4
+#define EXPR_DATA_LEN    1
+#define EXPR_DATA_OFFSET 32 //(16buttons * 2)
+
+struct expression_data {
+  int pin;
+  int value;
+  int cc;
+} exp_data[EXPRESSION_COUNT] = {
+  { A1, 0, 0 },
+  { A2, 0, 0 },
+  { A3, 0, 0 },
+  { A4, 0, 0 },
+};
+
+
 struct button_data buttons_config[15];
 
 static char * menu_items[] = {
@@ -79,8 +95,14 @@ uint16_t leds_state;
 int (*current_menu)(int) = NULL;
 
 
+void load_expression_data(int expr) 
+{
+  exp_data[expr].cc = EEPROM.read(EXPR_DATA_OFFSET + expr*EXPR_DATA_LEN);
+  //exp_data[expr].cc = EEPROM.read(EXPR_DATA_OFFSET + i*EXPR_DATA_LEN);
+}
 
-void load_data(int key) {
+void load_button_data(int key) 
+{
 #ifdef DEBUG
   Serial.print("Load data for: "); 
   Serial.print(key);
@@ -96,7 +118,8 @@ void load_data(int key) {
   if (cc_data.number > 127 || cc_data.number < 0) cc_data.number = 0;
 }
 
-void save_data(int key) {
+void save_data(int key) 
+{
 #ifdef DEBUG
   Serial.print("Save data for: "); 
   Serial.print(key);
@@ -109,7 +132,8 @@ void save_data(int key) {
   buttons_config[key - 1] = cc_data;
 }
 
-void setup(){
+void setup()
+{
   Wire.begin();
   lcd.init();
 
@@ -122,9 +146,14 @@ void setup(){
   MIDI.begin();
 
   for (int i =1; i < 16; i++) {
-    load_data(i);
+    load_button_data(i);
     buttons_config[i-1] = cc_data;
   }
+
+  for (int i = 0; i < EXPRESSION_COUNT ; i++) {
+    load_expression_data(i);
+  }
+  
   lcd.clear();
   MIDI.setInputChannel(MIDI_CHANNEL_OMNI);
   MIDI.turnThruOff();
@@ -168,7 +197,7 @@ int select_cc_menu(int key)
         return MENU_EXIT;        
     default:
         if (key > 0 && key < 0x80) 
-          load_data(key);
+          load_button_data(key);
     }
     snprintf(dispbuf, 16, "%cC# %3d         ", data->type, data->number);
     lcd.setCursor(0, 1);
@@ -244,15 +273,6 @@ int getKey() {
 
   return -1;
 }
-
-#define EXPRESSION_COUNT 2
-
-struct expression_data {
-  int pin;
-  int value;
-  int cc;
-} 
-exp_data[EXPRESSION_COUNT];
 
 void handle_analog() 
 {
