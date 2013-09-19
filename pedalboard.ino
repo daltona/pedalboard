@@ -39,7 +39,7 @@ char keys[ROWS][COLS] = {
     {11, 12, 13, 14, 15},
 };
 
-byte rowPins[ROWS] = { 4, 3, 2 };				//connect to the row pinouts of the keypad
+byte rowPins[ROWS] = { 2, 3, 4 };				//connect to the row pinouts of the keypad
 byte colPins[COLS] = { 13, 12, 11, 10, 9};		//connect to the column pinouts of the keypad
 
 Keypad keypad = Keypad (makeKeymap (keys), rowPins, colPins, ROWS, COLS);
@@ -146,7 +146,7 @@ setup ()
     lcd.setCursor (0, 0);
     lcd.print ("Pedalboard 1.0");
     delay (1000);
-
+    
     MIDI.begin ();
 
     for (int i = 1; i < 16; i++) {
@@ -162,6 +162,11 @@ setup ()
     MIDI.setInputChannel (MIDI_CHANNEL_OMNI);
     MIDI.turnThruOff ();
     MIDI.setHandleClock (handleClock);
+    pinMode(serial_clock, OUTPUT);      
+    pinMode(serial_data_out, OUTPUT);      
+    pinMode(aux_disp_latch, OUTPUT);      
+#define PULSE 1
+    digitalWrite(serial_clock, !PULSE);
 }
 
 void
@@ -295,13 +300,15 @@ getKey ()
 void
 handle_analog ()
 {
-    for (int i = 0; i < EXPRESSION_COUNT; i++) {
+    for (int i = 0; i < 1/*EXPRESSION_COUNT*/; i++) {
         int newValue = analogRead (exp_data[i].pin);
+        Serial.print("a"); Serial.print(i); Serial.print("=");Serial.println(newValue);
         if (exp_data[i].value != newValue) {
             exp_data[i].value = newValue;
             lcd.setCursor (10, 0);
             sprintf (dispbuf, "E%d:%3d",
                     i, newValue);
+            lcd.print(dispbuf);
             MIDI.sendControlChange (exp_data[i].cc,
                     exp_data[i].value, midi_channel);
 	    }
@@ -317,6 +324,7 @@ handle_button (struct button_data *d)
         MIDI.sendControlChange (d->number, d->state == 0 ? 1 : 0, midi_channel);
     }
 }
+  static int offset = 0;
 
 void
 loop ()
@@ -327,6 +335,10 @@ loop ()
     if (key != -1) {
         Serial.print ("Key: ");
         Serial.println (key);
+      if (key == KEY_UP) {
+         offset ++; 
+        if (offset > 15) offset = 0;
+      } 
     }
 
     switch (state) {
@@ -347,7 +359,7 @@ loop ()
         lcd.setCursor (0, 0);
         lcd.print ("RUN ");
         lcd.setCursor (0, 1);
-        snprintf (dispbuf, 16, "B %02d P %02d", bank, patch);
+        snprintf (dispbuf, 16, "B%02d P%02d", bank, patch);
         lcd.print (dispbuf);
         aux_disp_print(dispbuf);
         break;
@@ -365,10 +377,10 @@ loop ()
 
 void shiftout(uint8_t data) {
     for (int i =0; i < 8; i++) {
-        digitalWrite(serial_data_out, data & 1);
-        digitalWrite(serial_clock, 0);
-        digitalWrite(serial_clock, 1);
-        data >>= 1;
+        digitalWrite(serial_data_out, (data & 0x80) ? HIGH : LOW);
+        digitalWrite(serial_clock, PULSE);
+        digitalWrite(serial_clock, !PULSE);
+        data <<= 1;
     }
 }
 
@@ -395,14 +407,21 @@ int clear_led(int led) {
     update_leds();    
 }
 
+
 void aux_disp_print(char * str) {
-    for (int i = 0; i < 8; i++) {
+  Serial.print("Offset: "); Serial.println(offset);
+  for (int i = 0; i < 8; i++) {
+
         uint16_t tmp = getdata(str[i]);
+        shiftout(tmp & 0xff);    
         shiftout(tmp >> 8);
-        shiftout(tmp & 0xff);        
     }
     latch_aux_disp();
 }
+
+
+
+
 
 uint16_t getdata(char c) {        
     uint16_t result = 0;
@@ -447,7 +466,7 @@ uint16_t getdata(char c) {
         case 'Z': result = 0b0010010000001001; break;
         case '*': result = 0b0011111111000000; break;
     }
-    return result;
+    return (result << 10 & 0xfc00) | (result >> 6) & 0x03ff;
 }
 
 
