@@ -139,14 +139,7 @@ save_data (int key)
     buttons_config[key - 1] = cc_data;
 }
 
-void keypadevent(KeypadEvent evt) {
-  byte kpadState = keypad.getState();
-  Serial.print("State: ");Serial.println(kpadState);
-
-  Serial.print("KEY: ");Serial.println((int)evt);
-
-
-}
+void keypadevent(KeypadEvent evt);
 
 
 void
@@ -289,6 +282,18 @@ run_menu (int key)
   return current_menu (key);
 }
 
+
+byte keyState;
+byte currentKey;
+
+void keypadevent(KeypadEvent evt) {
+  keyState = keypad.getState();
+  currentKey = evt;
+  Serial.print("State: ");Serial.println(keyState);
+  Serial.print("KEY: ");Serial.println((int)evt);
+}
+
+
 int
 getKey ()
 {
@@ -296,10 +301,20 @@ getKey ()
     char key = keypad.getKey ();
 
     if (key != 0) {
+        currentKey = key;
         Serial.println (key);
-        return key;
     }
 
+    if (keyState == RELEASED) {
+        keyState = -1;
+        return currentKey;
+    } else if (keyState == HOLD) {
+        if (currentKey == 15) {
+           keyState = -1;
+           return MENU_ENTER;
+       }
+    }
+    
     key = lcd.get_key ();		// read the value from the sensor & convert into key press
 
     if (key != oldkey) {
@@ -349,6 +364,8 @@ void
 loop ()
 {
     static int state = STATE_RUN;
+
+
     int key = getKey ();
 
     if (key != -1) {
