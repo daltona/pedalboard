@@ -39,8 +39,8 @@ const byte COLS = 5;		//five columns
 char keys[ROWS][COLS] = {
     { 1,  2,  3,  4,  5},
     { 6,  7,  8,  9, 10},
-//    {11, 12, 13, 14, 15},
-    {KEY_LEFT, KEY_RIGHT, KEY_DOWN, KEY_UP, KEY_ENTER},
+    {11, 12, 13, 14, 15},
+//    {KEY_LEFT, KEY_RIGHT, KEY_DOWN, KEY_UP, KEY_ENTER},
 };
 
 byte rowPins[ROWS] = { 2, 3, 4 };				//connect to the row pinouts of the keypad
@@ -204,24 +204,30 @@ select_cc_menu (int key)
 		/** Init data */
       break;
     case KEY_UP:
+    case 14:
       data->number++;
       if (data->number > 127)
 	    data->number = 127;
       break;
     case KEY_DOWN:
+    case 13:
       data->number--;
       if (data->number < 0)
 	    data->number = 0;
       break;
     case KEY_LEFT:
     case KEY_RIGHT:
+    case 11:
+    case 12:
       data->type = data->type == 'P' ? 'C' : 'P';
       break;
     case KEY_ENTER:
+    case 15:
       save_data (data->key);
       return MENU_EXIT;
     default:
-      if (key > 0 && key < FUNCTION_KEY_OFFSET) load_button_data (key);
+      break;
+//      if (key > 0 && key < FUNCTION_KEY_OFFSET) load_button_data (key);
     }
     snprintf (dispbuf, 16, "%cC# %3d         ", data->type, data->number);
     lcd.setCursor (0, 1);
@@ -244,7 +250,7 @@ main_menu (int key)
       break;
 
     default:
-      if (key < FUNCTION_KEY_OFFSET && key > 0)
+      if (key < FUNCTION_KEY_OFFSET && key > 0 && cc_data.key == -1)
 	{
 	  cc_data.key = key;
 	  ret = select_cc_menu (key);
@@ -288,9 +294,24 @@ byte currentKey;
 
 void keypadevent(KeypadEvent evt) {
   keyState = keypad.getState();
-  currentKey = evt;
-  Serial.print("State: ");Serial.println(keyState);
-  Serial.print("KEY: ");Serial.println((int)evt);
+  static int8_t state = 0;
+
+  Serial.print("keyevent : "); Serial.print(evt, HEX); Serial.print(" "); Serial.println(keyState, HEX); 
+
+      if (keyState == RELEASED  && state == 0) {
+          currentKey = evt;
+      } else if (keyState == HOLD) {        
+        currentKey = evt;
+        if (state ==0 && currentKey == 15) {
+             keyState = RELEASED;
+             currentKey = KEY_ENTER;
+             state = 1;
+         } 
+      } else if (state == 1 && keyState == IDLE) {
+        state = 0;
+      }
+
+
 }
 
 
@@ -300,20 +321,12 @@ getKey ()
     static int8_t oldkey = -1;
     char key = keypad.getKey ();
 
-    if (key != 0) {
-        currentKey = key;
-        Serial.println (key);
-    }
-
-    if (keyState == RELEASED) {
-        keyState = -1;
-        return currentKey;
-    } else if (keyState == HOLD) {
-        if (currentKey == 15) {
-           keyState = -1;
-           return MENU_ENTER;
-       }
-    }
+    if (currentKey != -1 && keyState == RELEASED) {
+      key = currentKey;
+      currentKey = -1;
+      Serial.print("Key: "); Serial.println(key, HEX);
+      return key;
+    }    
     
     key = lcd.get_key ();		// read the value from the sensor & convert into key press
 
@@ -357,9 +370,11 @@ handle_button (struct button_data *d)
         MIDI.sendControlChange (d->number, d->state == 0 ? 1 : 0, midi_channel);
     }
 }
-  static int offset = 0;
+
+static int offset = 0;
 static int toggle = 0;
 static uint32_t old = 0;
+
 void
 loop ()
 {
@@ -369,14 +384,12 @@ loop ()
     int key = getKey ();
 
     if (key != -1) {
-        Serial.print ("Key: ");
-        Serial.println (key);
-      if (key == KEY_UP) {
-         offset ++; 
-        if (offset > 15) offset = 0;
-          Serial.print("Offset: "); Serial.println(offset);
-
-      } 
+        if (key == KEY_UP) {
+           offset ++; 
+          if (offset > 15) offset = 0;
+            Serial.print("Offset: "); Serial.println(offset);
+  
+        } 
     }
     if ( (millis() - old) > 1000 ) {
       old = millis();
