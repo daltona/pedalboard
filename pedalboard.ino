@@ -253,7 +253,7 @@ main_menu (int key)
       if (key < FUNCTION_KEY_OFFSET && key > 0 && cc_data.key == -1)
 	{
 	  cc_data.key = key;
-	  ret = select_cc_menu (key);
+          load_button_data(key);
 	}
       else if (cc_data.key != -1)
 	{
