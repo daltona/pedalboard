@@ -362,6 +362,8 @@ int run_menu (int key)
     ret = current_menu(key);
     if (ret == MENU_EXIT && current_menu == main_menu) {
         return MENU_EXIT;
+    } else if (ret == MENU_EXIT) {
+        current_menu = prev_menu;
     } else {
         return MENU_CONTINUE;
     }
