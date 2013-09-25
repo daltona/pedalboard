@@ -461,12 +461,14 @@ void loop ()
 
     int key = getKey ();
 
-    if ( (millis() - old) > 1000 ) {
+    if ( (millis() - old) > 2000 ) {
       old = millis();
       toggle++;
+      aux_disp_print(toggle & 1 ? (char*)"COUCOU  " : (char*)"LOUISE  ");
     }
-    aux_disp_print(toggle & 1 ? (char*)"COUCOU  " : (char*)"LOUISE  ");
-
+    
+    aux_disp_update();
+    
     switch (state) {
     case STATE_RUN:
         if (key == KEY_ENTER) {
@@ -549,15 +551,33 @@ int clear_led(int led) {
 
 
 
+char aux_disp_buf[8];
+int aux_disp_offset;
 
 void aux_disp_print(char * str) {
-  for (int i = 0; i < 8; i++) {
+    strncpy(aux_disp_buf, str, 8);
+    aux_disp_offset = 0;   
+}
+
+void aux_disp_update() {
+    static uint32_t last;
+    
+    if (millis() - last > 80) {
+        last = millis();
+        aux_disp_offset++;
+        if (aux_disp_offset > 8) aux_disp_offset = 8;
+    }
+    for (int i = 0; i <= (8-aux_disp_offset); i++) {
+        shiftout(0);
+        shiftout(0);
+    }
+    for (int i = 0; i < aux_disp_offset; i++) {
 //#define TEST
 
 #ifdef TEST
-    uint16_t tmp = 1 << offset;
+        uint16_t tmp = 1 << offset;
 #else
-        uint16_t tmp = getdata(str[i]);
+        uint16_t tmp = getdata(aux_disp_buf[i]);
 #endif
         shiftout(tmp >> 8);
         shiftout(tmp & 0xff);    
@@ -566,7 +586,9 @@ void aux_disp_print(char * str) {
     digitalWrite(aux_disp_latch, HIGH);
     digitalWrite(aux_disp_latch, LOW);
 //    latch_aux_disp();
+
 }
+
 
 uint16_t getdata(char c) {        
     uint16_t result = 0;
