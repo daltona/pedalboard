@@ -8,6 +8,10 @@
 #include <EEPROM.h>
 #include <MIDI.h>
 
+#include "config.h"
+#include "display.h"
+
+
 #define MENU_ENTER      0xA0
 #define MENU_EXIT       0xA1
 
@@ -23,12 +27,9 @@
 
 #define DEBUG
 
-int serial_clock = 6;
-int serial_data_out = 5;
 
-int led_latch = 8;
-int aux_disp_latch = 7;
 
+int brightness;
 
 /** display buffer. */
 static char dispbuf[20];
@@ -51,8 +52,6 @@ Keypad keypad = Keypad (makeKeymap (keys), rowPins, colPins, ROWS, COLS);
 static Deuligne lcd;
 
 byte midi_channel = 1;
-
-static uint16_t led_state = 0;
 
 /** Switch configuration data */
 struct button_data
@@ -82,13 +81,6 @@ struct expression_data
 
 struct button_data buttons_config[15];
 
-static char *menu_items[] = {
-  "Midi Chnl",
-  "Brightness"
-};
-
-#define MENU_ITEM_COUNT (sizeof(menu_items) / sizeof(char *))
-
 #define STATE_RUN 0
 #define STATE_MENU 1
 
@@ -99,10 +91,13 @@ uint16_t leds_state;
 int (*current_menu) (int) = NULL;
 int (*prev_menu) (int) = NULL;
 
+/***********************************************************************/
+/******                 NVM MANAGEMENT                              ****/
+/***********************************************************************/
+
 void load_expression_data (int expr)
 {
     exp_data[expr].cc = EEPROM.read (EXPR_DATA_OFFSET + expr * EXPR_DATA_LEN);
-    //exp_data[expr].cc = EEPROM.read(EXPR_DATA_OFFSET + i*EXPR_DATA_LEN);
 }
 
 void load_button_data (int key)
@@ -139,14 +134,13 @@ void save_data (int key)
 
 void keypadevent(KeypadEvent evt);
 
-
 void setup ()
 {
-    pinMode(serial_clock, OUTPUT);      
-    pinMode(serial_data_out, OUTPUT);      
-    pinMode(aux_disp_latch, OUTPUT);      
-    digitalWrite(serial_clock, LOW);
-    digitalWrite(serial_data_out, LOW);
+    pinMode(SERIAL_CLOCK,    OUTPUT);      
+    pinMode(SERIAL_DATA_OUT, OUTPUT);      
+    pinMode(AUX_DISP_LATCH,  OUTPUT);      
+    digitalWrite(SERIAL_CLOCK, LOW);
+    digitalWrite(SERIAL_DATA_OUT, LOW);
 
 
     Wire.begin ();
@@ -185,13 +179,19 @@ void handleClock (void)
     lcd.print (clock++);
 }
 
+
+
+/***********************************************************************/
+/******           MENU IMPLEMENTATION AND MANAGEMENT                ****/
+/***********************************************************************/
 int select_cc_menu (int key)
 {
     struct button_data *data = &cc_data;
 
+#ifdef DEBUG
     Serial.print ("select_cc_menu: ");
     Serial.println (key);
-
+#endif
     memset (dispbuf, ' ', 16);
     switch (key)
     {
@@ -236,30 +236,28 @@ int select_cc_menu (int key)
 int assign_menu (int key)
 {
     int ret = MENU_CONTINUE;
-    switch (key)
-    {
+    switch (key) {
     case MENU_ENTER:
-      cc_data.key = -1;
-      lcd.clear ();
-      lcd.setCursor (0, 0);
-      lcd.print ("Select key      ");
-      break;
+        cc_data.key = -1;
+        lcd.clear ();
+        lcd.setCursor (0, 0);
+        lcd.print ("Select key      ");
+        break;
 
     default:
-      if (key < FUNCTION_KEY_OFFSET && key > 0 && cc_data.key == -1)
-	{
-	  cc_data.key = key;
-          load_button_data(key);
+        if (key < FUNCTION_KEY_OFFSET && key > 0 && cc_data.key == -1) {
+            cc_data.key = key;
+            load_button_data(key);
+	} else if (cc_data.key != -1) {
+            ret = select_cc_menu (key);
+#ifdef DEBUG
+            Serial.print ("return: ");
+            Serial.println (ret);
+#endif
+            if (ret == MENU_EXIT)
+                return MENU_EXIT;
 	}
-      else if (cc_data.key != -1)
-	{
-	  ret = select_cc_menu (key);
-	  Serial.print ("return: ");
-	  Serial.println (ret);
-	  if (ret == MENU_EXIT)
-	    return MENU_EXIT;
-	}
-      break;
+        break;
     }
 
     if (cc_data.key != -1) {
@@ -272,7 +270,7 @@ int assign_menu (int key)
     return ret;
 }
 
-static int offset = 0;
+extern int offset;
 
 int config_menu(int key)
 {
@@ -305,6 +303,37 @@ int config_menu(int key)
     return ret;
 }
 
+int brightness_menu(int key)
+{
+    int ret = MENU_CONTINUE;
+
+    switch(key) {
+        case MENU_ENTER: break;
+        case 11: /* left */
+            brightness --; if (brightness < 0) brightness = 15; break;
+        case 12: /* right */
+            brightness ++; if (brightness > 15) brightness = 0; break;
+        case 13: /* down */
+            break;
+        case 14: /* up */
+            break;
+        case 15: /* enter */
+            return MENU_EXIT;
+            break;
+    }
+#ifdef DEBUG
+    Serial.print("brightness: "); Serial.println(brightness);
+#endif
+    lcd.setCursor (0, 0);
+    lcd.print ("LCD Brightness  ");
+
+    snprintf (dispbuf, 16, "%2d                ", brightness);
+    lcd.setCursor (0, 1);
+    lcd.print (dispbuf);
+
+    return ret;
+}
+
 int menu_exit (int key)
 {
     return MENU_EXIT;
@@ -318,6 +347,7 @@ struct menu_item {
 struct menu_item main_items[] = {
     {"Assign", assign_menu},
     {"Config", config_menu},
+    {"Brightness", brightness_menu},
     {"Exit", menu_exit},
 };
 
@@ -398,7 +428,7 @@ void keypadevent(KeypadEvent evt)
 }
 
 
-int getKey ()
+int read_key ()
 {
     static int8_t oldkey = -1;
     char key = keypad.getKey ();
@@ -459,7 +489,7 @@ void loop ()
     static int state = STATE_RUN;
 
 
-    int key = getKey ();
+    int key = read_key ();
 
     if ( (millis() - old) > 2000 ) {
       old = millis();
@@ -506,140 +536,4 @@ void loop ()
     handle_analog ();
     MIDI.read ();
 }
-
-int clockcount = 0;
-
-#define MSB_FIRST
-void shiftout(uint8_t data) {
-  for (int i = 0; i < 8; i++) {
-#ifdef MSB_FIRST
-        digitalWrite(serial_data_out, (data & 0x80) ? HIGH : LOW);
-        data <<= 1;
-#else
-        digitalWrite(serial_data_out, (data & 1) ? HIGH : LOW);
-        data >>= 1;
-#endif
-        digitalWrite(serial_clock, HIGH);
-        digitalWrite(serial_clock, HIGH);
-        digitalWrite(serial_clock, LOW);
-        digitalWrite(serial_clock, LOW);
-        clockcount++;
-    }
-}
-
-void latch_aux_disp() 
-{
-    Serial.print("Clocks: "); Serial.println(clockcount);
-    clockcount = 0;
-}
-
-void update_leds() {
-    /*latch*/
-    digitalWrite(led_latch, HIGH);
-    digitalWrite(led_latch, LOW);
-}
-
-int set_led(int led) {
-    led_state |= (1<<led);    
-    update_leds();
-}
-
-int clear_led(int led) {
-    led_state &= ~(1<<led);
-    update_leds();    
-}
-
-
-
-char aux_disp_buf[8];
-int aux_disp_offset;
-
-void aux_disp_print(char * str) {
-    strncpy(aux_disp_buf, str, 8);
-    aux_disp_offset = 0;   
-}
-
-void aux_disp_update() {
-    static uint32_t last;
-    
-    if (millis() - last > 80) {
-        last = millis();
-        aux_disp_offset++;
-        if (aux_disp_offset > 8) aux_disp_offset = 8;
-    }
-    for (int i = 0; i <= (8-aux_disp_offset); i++) {
-        shiftout(0);
-        shiftout(0);
-    }
-    for (int i = 0; i < aux_disp_offset; i++) {
-//#define TEST
-
-#ifdef TEST
-        uint16_t tmp = 1 << offset;
-#else
-        uint16_t tmp = getdata(aux_disp_buf[i]);
-#endif
-        shiftout(tmp >> 8);
-        shiftout(tmp & 0xff);    
-    }
-    digitalWrite(aux_disp_latch, LOW);
-    digitalWrite(aux_disp_latch, HIGH);
-    digitalWrite(aux_disp_latch, LOW);
-//    latch_aux_disp();
-
-}
-
-
-uint16_t getdata(char c) {        
-    uint16_t result = 0;
-
-    switch (c) {
-        case 0 : 
-        case ' ': result = 0b0000000000000000; break;
-        case '0': result = 0b0010010000111111; break;
-        case '1': result = 0b0000000000000110; break;
-        case '2': result = 0b0000000011011011; break;
-        case '3': result = 0b0000000010001111; break;
-        case '4': result = 0b0001001011100000; break;
-        case '5': result = 0b0000000011101101; break;
-        case '6': result = 0b0000000011111101; break;
-        case '7': result = 0b0000000000000111; break;
-        case '8': result = 0b0000000011111111; break;
-        case '9': result = 0b0000000011101111; break;
-        case 'A': result = 0b0000000011110111; break;
-        case 'B': result = 0b0001001010001111; break;
-        case 'C': result = 0b0000000000111001; break;
-        case 'D': result = 0b0001001000001111; break;
-        case 'E': result = 0b0000000001111001; break;
-        case 'F': result = 0b0000000001110001; break;
-        case 'G': result = 0b0000000010111101; break;
-        case 'H': result = 0b0000000011110110; break;
-        case 'I': result = 0b0001001000001001; break;
-        case 'J': result = 0b0000000000011110; break;
-        case 'K': result = 0b0000110001110000; break;
-        case 'L': result = 0b0000000000111000; break;
-        case 'M': result = 0b0000010100110110; break;
-        case 'N': result = 0b0000100100110110; break;
-        case 'O': result = 0b0000000000111111; break;
-        case 'P': result = 0b0000000011110011; break;
-        case 'Q': result = 0b0000100000111111; break;
-        case 'R': result = 0b0000100011110011; break;
-        case 'S': result = 0b0000000011101101; break;
-        case 'T': result = 0b0001001000000001; break;
-        case 'U': result = 0b0000000000111110; break;
-        case 'V': result = 0b0010010000110000; break;
-        case 'W': result = 0b0010100000110110; break;
-        case 'X': result = 0b0010110100000000; break;
-        case 'Y': result = 0b0001010100000000; break;
-        case 'Z': result = 0b0010010000001001; break;
-        case '*': result = 0b0011111111000000; break;
-    }
-//  return result;
-uint16_t mask =0;
-  for (int i=0; i<(16 -offset); i++) mask |= 1<<i;
-
-
-  return (result << offset) | (result >> (16-offset)) & mask;
-}
-
 
