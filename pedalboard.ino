@@ -10,6 +10,7 @@
 
 #include "config.h"
 #include "display.h"
+#include "kemper.h"
 
 
 #define MENU_ENTER      0xA0
@@ -167,6 +168,7 @@ void setup ()
     MIDI.setInputChannel (MIDI_CHANNEL_OMNI);
     MIDI.turnThruOff ();
     MIDI.setHandleClock (handleClock);
+    MIDI.setHandleSystemExclusive (handle_sysex);
     keypad.addEventListener(keypadevent);
 
 }
@@ -470,6 +472,46 @@ void handle_analog ()
                     exp_data[i].value, midi_channel);
 	}
     }
+}
+
+/*********************************************************************/
+/*********            KEMPER SYSEX HANDLING                    *******/
+/*********************************************************************/
+struct sys_ex {
+    char header[5];
+    unsigned char fn;
+    char id;
+    char data[128];
+} sysex_buffer = {{ 0x00, 0x20, 0x33, 0x02, 0x7f}, 0, 0, {0}, };
+
+void handle_sysex(byte * data, byte len)
+{
+    struct sys_ex * s = (struct sys_ex *) (data+1);
+    switch(s->fn) {
+        case SYSEX_FN_STRING_PARAM:
+            Serial.print("String: ");
+            Serial.print(*((uint16_t *) s->data));
+            Serial.print(" ");
+            Serial.println((char *) s->data+2);
+            break;
+        case SYSEX_FN_PARAM:
+            Serial.print("Param: ");
+            Serial.print(*((uint16_t *) s->data));
+            Serial.print(" ");
+            Serial.println(*((uint16_t *) s->data+2));
+            break;
+        default:
+            Serial.print("Unknow sysex ");
+            Serial.println(s->fn, HEX);
+            break;
+    }
+}
+
+void request_rig_name()
+{
+    sysex_buffer.fn = SYSEX_FN_REQUEST_STRING;
+    * ((uint16_t*)sysex_buffer.data) = STRING_ID_RIG_NAME;
+    MIDI.sendSysEx(SYSEX_HEADER_SIZE+2, (const byte *)&sysex_buffer, 0);
 }
 
 void handle_button (struct button_data *d)
