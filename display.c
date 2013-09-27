@@ -59,6 +59,7 @@ void aux_disp_print(char * str) {
 void aux_disp_update() {
     static uint32_t last;
     int i;
+    if (aux_disp_offset == 8) return;
     
     if (millis() - last > 80) {
         last = millis();

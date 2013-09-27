@@ -468,8 +468,8 @@ void handle_analog ()
             sprintf (dispbuf, "E%d:%3d",
                     i, newValue);
             lcd.print(dispbuf);
-            MIDI.sendControlChange (exp_data[i].cc,
-                    exp_data[i].value, midi_channel);
+//            MIDI.sendControlChange (exp_data[i].cc,
+//                    exp_data[i].value, midi_channel);
 	}
     }
 }
@@ -520,6 +520,8 @@ void handle_button (struct button_data *d)
         MIDI.sendProgramChange (d->number, midi_channel);
     } else if (d->type == 'C') {
         MIDI.sendControlChange (d->number, d->state == 0 ? 1 : 0, midi_channel);
+        d->state = d->state ? 0 : 1;
+        Serial.print("Send control change " ); Serial.println(d->number);
     }
 }
 
@@ -529,8 +531,8 @@ static uint32_t old = 0;
 void loop ()
 {
     static int state = STATE_RUN;
-
-
+    static char changed = 1;
+    
     int key = read_key ();
 
     if ( (millis() - old) > 2000 ) {
@@ -555,16 +557,23 @@ void loop ()
                     buttons_config[key - 1].type,
                     buttons_config[key - 1].number);
             lcd.print (dispbuf);
+            handle_button(&buttons_config[key-1]);
+            changed = 1;
         } else if ( key == KEY_UP ) {
           bank++;
+            changed = 1;
         } else if ( key == KEY_DOWN ) {
           bank--;
+            changed = 1;
         }
-        lcd.setCursor (0, 0);
-        lcd.print ("RUN ");
-        lcd.setCursor (0, 1);
-        snprintf (dispbuf, 16, "B%02d P%02d", bank, patch);
-        lcd.print (dispbuf);
+        if (changed) {
+            lcd.setCursor (0, 0);
+            lcd.print ("RUN ");
+            lcd.setCursor (0, 1);
+            snprintf (dispbuf, 16, "B%02d P%02d", bank, patch);
+            lcd.print (dispbuf);
+            changed = 0;
+        }
         //aux_disp_print(dispbuf);
         break;
     case STATE_MENU:
