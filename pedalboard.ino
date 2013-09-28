@@ -4,6 +4,7 @@
  */
 #include <Keypad.h>
 #include <Wire.h>
+#include <LiquidCrystal_I2C.h>
 #include <Deuligne.h>
 #include <EEPROM.h>
 #include <MIDI.h>
@@ -50,7 +51,8 @@ byte colPins[COLS] = { 13, 12, 11, 10, 9};		//connect to the column pinouts of t
 
 Keypad keypad = Keypad (makeKeymap (keys), rowPins, colPins, ROWS, COLS);
 
-static Deuligne lcd;
+LiquidCrystal_I2C lcd(0x38, 16, 2);  // set the LCD address to 0x20 for a 16 chars and 2 line display
+//static Deuligne lcd;
 
 byte midi_channel = 1;
 
@@ -106,17 +108,19 @@ void load_button_data (int key)
 #ifdef DEBUG
     Serial.print ("Load data for: ");
     Serial.print (key);
-    Serial.print (EEPROM.read (key * 2), HEX);
+    Serial.print(" ");
+    Serial.print ((char)EEPROM.read (key * 2));
     Serial.print (" ");
     Serial.println (EEPROM.read (key * 2 + 1), HEX);
 #endif
     cc_data.key = key;
     cc_data.type = EEPROM.read (key * 2);
-    if (cc_data.type != 'P' && cc_data.type != 'C')
+    if (cc_data.type != 'P' && cc_data.type != 'C' && cc_data.type != 'T')
         cc_data.type = 'P';
     cc_data.number = EEPROM.read (key * 2 + 1);
     if (cc_data.number > 127 || cc_data.number < 0)
         cc_data.number = 0;
+    buttons_config[key - 1] = cc_data;
 }
 
 void save_data (int key)
@@ -124,7 +128,8 @@ void save_data (int key)
 #ifdef DEBUG
     Serial.print ("Save data for: ");
     Serial.print (key);
-    Serial.print (cc_data.type, HEX);
+    Serial.print (" ");
+    Serial.print ((char)cc_data.type);
     Serial.print (" ");
     Serial.println (cc_data.number, HEX);
 #endif
@@ -145,10 +150,10 @@ void setup ()
 
 
     Wire.begin ();
-    lcd.init ();
+    lcd.begin (16,2);
+//    lcd.backLight (true);
 
     lcd.clear ();
-    lcd.backLight (true);
     lcd.setCursor (0, 0);
     lcd.print ("Pedalboard 1.0");
     delay (1000);
@@ -166,8 +171,8 @@ void setup ()
 
     lcd.clear ();
     MIDI.setInputChannel (MIDI_CHANNEL_OMNI);
-    MIDI.turnThruOff ();
-    MIDI.setHandleClock (handleClock);
+//    MIDI.turnThruOff ();
+//    MIDI.setHandleClock (handleClock);
     MIDI.setHandleSystemExclusive (handle_sysex);
     keypad.addEventListener(keypadevent);
 
@@ -215,8 +220,12 @@ int select_cc_menu (int key)
     case KEY_LEFT:
     case KEY_RIGHT:
     case 11:
+      data->type = data->type == 'P' ? 'P' : 
+           data->type == 'C' ? 'P' : 'C';
+      break;
     case 12:
-      data->type = data->type == 'P' ? 'C' : 'P';
+      data->type = data->type == 'P' ? 'C' : 
+           data->type == 'C' ? 'T' : 'T';
       break;
     case KEY_ENTER:
     case 15:
@@ -353,23 +362,25 @@ struct menu_item main_items[] = {
     {"Exit", menu_exit},
 };
 
+#define MENU_SIZE (sizeof(main_items)/sizeof(struct menu_item))
 int main_menu(int key)
 {
     int ret = MENU_CONTINUE;
     static int index;
 
+    if ( key != -1) lcd.clear();
     switch(key) {
         case MENU_ENTER: index = 0; break;
         case 11: /* left */
             index --; if (index < 0) index = 0; break;
         case 12: /* right */
-            index ++; if (index > 2) index = 2; break;
+            index ++; if (index > MENU_SIZE - 1) index = MENU_SIZE - 1; break;
         case 13: /* down */
             break;
         case 14: /* up */
             break;
         case 15: /* enter */
-            if ( index == 2 )
+            if ( index == (MENU_SIZE -1) )
                 return MENU_EXIT;
             current_menu = main_items[index].menu;
             prev_menu = main_menu;
@@ -442,18 +453,6 @@ int read_key ()
         return key;
     }
 
-    key = lcd.get_key ();		// read the value from the sensor & convert into key press
-
-    if (key != oldkey) {
-        delay (50);		// wait for debounce time
-        key = lcd.get_key ();	// read the value from the sensor & convert into key press
-        if (key != oldkey) {
-            oldkey = key;
-            if (key >= 0) {
-    	        return key + FUNCTION_KEY_OFFSET;
-            }
-	}
-    }
     return -1;
 }
 
@@ -510,7 +509,15 @@ void handle_sysex(byte * data, byte len)
 void request_rig_name()
 {
     sysex_buffer.fn = SYSEX_FN_REQUEST_STRING;
-    * ((uint16_t*)sysex_buffer.data) = STRING_ID_RIG_NAME;
+    * ((uint16_t*)sysex_buffer.data) = STRING_ID_RIG_NAME << 8;
+    MIDI.sendSysEx(SYSEX_HEADER_SIZE+2, (const byte *)&sysex_buffer, 0);
+}
+
+void request_stomp_state()
+{
+    sysex_buffer.fn = SYSEX_FN_REQUEST_PARAM;
+    sysex_buffer.data[0] = STOMP_A_PAGE;
+    sysex_buffer.data[1] = ON_OFF_PARAM;
     MIDI.sendSysEx(SYSEX_HEADER_SIZE+2, (const byte *)&sysex_buffer, 0);
 }
 
@@ -518,11 +525,17 @@ void handle_button (struct button_data *d)
 {
     if (d->type == 'P') {
         MIDI.sendProgramChange (d->number, midi_channel);
+        Serial.print("Send program change " ); Serial.println(d->number);
     } else if (d->type == 'C') {
+        MIDI.sendControlChange (d->number, 1, midi_channel);
+        Serial.print("Send control change " ); Serial.println(d->number);
+    } else if (d->type == 'T') {
         MIDI.sendControlChange (d->number, d->state == 0 ? 1 : 0, midi_channel);
         d->state = d->state ? 0 : 1;
-        Serial.print("Send control change " ); Serial.println(d->number);
+        Serial.print("Send toggle control change " ); Serial.print(d->state); Serial.print(" " ); Serial.println(d->number);
     }
+    request_rig_name();
+    request_stomp_state();
 }
 
 static int toggle = 0;
@@ -578,13 +591,14 @@ void loop ()
         break;
     case STATE_MENU:
         if (MENU_EXIT == run_menu (key)) {
+            changed = 1;
             state = STATE_RUN;
             lcd.clear ();
         }
         break;
     }
 
-    handle_analog ();
+    //handle_analog ();
     MIDI.read ();
 }
 

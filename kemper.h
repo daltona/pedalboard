@@ -91,4 +91,11 @@
 
 #define STRING_ID_RIG_NAME           0x0001
 
+#define STOMP_A_PAGE                   50
+#define STOMP_B_PAGE                   51
+#define STOMP_C_PAGE                   52
+#define STOMP_D_PAGE                   53
+
+#define ON_OFF_PARAM                   03
+
 #endif
