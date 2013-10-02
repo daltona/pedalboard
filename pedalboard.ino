@@ -74,12 +74,13 @@ struct expression_data
     int pin;
     int value;
     int cc;
+    int enable;
 } exp_data[EXPRESSION_COUNT] =
 {
-  {A1, 0, 0},
-  {A2, 0, 0},
-  {A3, 0, 0},
-  {A4, 0, 0},
+  {A1, 0, 0, 0},
+  {A2, 0, 0, 0},
+  {A3, 0, 0, 0},
+  {A4, 0, 0, 0},
 };
 
 struct button_data buttons_config[15];
@@ -97,12 +98,6 @@ int (*prev_menu) (int) = NULL;
 /***********************************************************************/
 /******                 NVM MANAGEMENT                              ****/
 /***********************************************************************/
-
-void load_expression_data (int expr)
-{
-    exp_data[expr].cc = EEPROM.read (EXPR_DATA_OFFSET + expr * EXPR_DATA_LEN);
-}
-
 void load_button_data (int key)
 {
 #ifdef DEBUG
@@ -138,6 +133,20 @@ void save_data (int key)
     buttons_config[key - 1] = cc_data;
 }
 
+void load_exp_data() {
+    for (int i=0; i < EXPRESSION_COUNT; i++) {
+        exp_data[i].cc = EEPROM.read(EXPR_DATA_OFFSET + i*2);
+        if (exp_data[i].cc > 127) exp_data[i].cc = 0;
+        exp_data[i].enable = EEPROM.read(EXPR_DATA_OFFSET + i*2 + 1);
+        if (exp_data[i].enable) exp_data[i].enable = 1;
+    }
+}
+
+void save_exp_data(int i) {
+    EEPROM.write (EXPR_DATA_OFFSET + i * 2, exp_data[i].cc);
+    EEPROM.write (EXPR_DATA_OFFSET + i * 2 + 1, exp_data[i].enable);
+}
+
 void keypadevent(KeypadEvent evt);
 
 void setup ()
@@ -165,9 +174,7 @@ void setup ()
         buttons_config[i - 1] = cc_data;
     }
 
-    for (int i = 0; i < EXPRESSION_COUNT; i++) {
-        load_expression_data (i);
-    }
+    load_exp_data ();
 
     lcd.clear ();
     MIDI.setInputChannel (MIDI_CHANNEL_OMNI);
@@ -191,6 +198,86 @@ void handleClock (void)
 /***********************************************************************/
 /******           MENU IMPLEMENTATION AND MANAGEMENT                ****/
 /***********************************************************************/
+int expression_menu (int key)
+{
+    static int index = 0;
+    static int param = 0;
+    static int changed = 0;
+
+#ifdef DEBUG
+    Serial.print ("select_cc_menu: ");
+    Serial.println (key);
+#endif
+    memset (dispbuf, ' ', 16);
+    switch (key)
+    {
+    case MENU_ENTER:
+		/** Init data */
+        index = 0; param = 0;
+        changed = 1;
+        lcd.cursor();
+      break;
+    case KEY_UP:
+    case 14:
+      switch ( param ) {
+          case 0: index++; if (index > (EXPRESSION_COUNT-1)) index = (EXPRESSION_COUNT-1); break;
+          case 1: exp_data[index].cc++; if (exp_data[index].cc > 127) exp_data[index].cc = 127; break;
+          case 2: if (exp_data[index].enable == 0) exp_data[index].enable = 1; else exp_data[index].enable = 0; break;
+          case 3: /* GO TO CALIB MENU */ break;          
+      }
+      changed = 1;
+      break;
+    case KEY_DOWN:
+    case 13:
+      switch ( param ) {
+          case 0: index--; if (index < 0) index = 0; break;
+          case 1: exp_data[index].cc--; if (exp_data[index].cc < 0) exp_data[index].cc = 0; break;
+          case 2: if (exp_data[index].enable == 0) exp_data[index].enable = 1; else exp_data[index].enable = 0; break;
+          case 3: /* GO TO CALIB MENU */ break;          
+      }
+      changed = 1;
+      break;
+    case KEY_LEFT:
+    case KEY_RIGHT:
+    case 11:
+      param--; if (param < 0) param = 0;
+        changed = 1;
+      break;
+    case 12:
+      param++; if (param > 4) param = 4;
+        changed = 1;
+      break;
+    case KEY_ENTER:
+    case 15:
+        if (param == 4) {
+          lcd.noCursor();          
+          return MENU_EXIT;
+        }
+    default:
+      break;
+//      if (key > 0 && key < FUNCTION_KEY_OFFSET) load_button_data (key);
+    }
+
+    if ( changed ) {
+        changed = 0;
+        snprintf (dispbuf, 16, "%1d CC%3d E%d CA EX", index, exp_data[index].cc, exp_data[index].enable);
+        lcd.setCursor (0, 1);
+        lcd.print (dispbuf);
+        switch(param) {
+            case 0: lcd.setCursor(0,1); break;
+            case 1: lcd.setCursor(2,1); break;
+            case 2: lcd.setCursor(8,1); break;
+            case 3: lcd.setCursor(11,1); break;
+            case 4: lcd.setCursor(14,1); break;
+        }
+        save_exp_data(index);
+    }
+#ifdef DEBUG
+    Serial.println ("select_cc_menu exit CONTINUE");
+#endif
+    return MENU_CONTINUE;
+}
+
 int select_cc_menu (int key)
 {
     struct button_data *data = &cc_data;
@@ -357,6 +444,7 @@ struct menu_item {
 
 struct menu_item main_items[] = {
     {"Assign", assign_menu},
+    {"Expression", expression_menu},
     {"Config", config_menu},
     {"Brightness", brightness_menu},
     {"Exit", menu_exit},
@@ -406,6 +494,7 @@ int run_menu (int key)
     if (ret == MENU_EXIT && current_menu == main_menu) {
         return MENU_EXIT;
     } else if (ret == MENU_EXIT) {
+        lcd.clear();
         current_menu = prev_menu;
     } else {
         return MENU_CONTINUE;
@@ -458,8 +547,9 @@ int read_key ()
 
 void handle_analog ()
 {
-    for (int i = 0; i < 1/*EXPRESSION_COUNT*/; i++) {
-        int newValue = analogRead (exp_data[i].pin);
+    for (int i = 0; i < EXPRESSION_COUNT; i++) {
+        if ( ! exp_data[i].enable ) continue;
+        int newValue = analogRead (exp_data[i].pin) / 8;
         //Serial.print("a"); Serial.print(i); Serial.print("=");Serial.println(newValue);
         if (exp_data[i].value != newValue) {
             exp_data[i].value = newValue;
@@ -467,8 +557,8 @@ void handle_analog ()
             sprintf (dispbuf, "E%d:%3d",
                     i, newValue);
             lcd.print(dispbuf);
-//            MIDI.sendControlChange (exp_data[i].cc,
-//                    exp_data[i].value, midi_channel);
+            MIDI.sendControlChange (exp_data[i].cc,
+                    exp_data[i].value, midi_channel);
 	}
     }
 }
@@ -551,7 +641,7 @@ void loop ()
     if ( (millis() - old) > 2000 ) {
       old = millis();
       toggle++;
-      aux_disp_print(toggle & 1 ? (char*)"COUCOU  " : (char*)"LOUISE  ");
+      aux_disp_print(toggle & 1 ? (char*)"COUCOU  " : (char*)"LOUISE  AMOUR");
     }
     
     aux_disp_update();
@@ -598,7 +688,7 @@ void loop ()
         break;
     }
 
-    //handle_analog ();
+    handle_analog ();
     MIDI.read ();
 }
 

@@ -48,38 +48,53 @@ void clear_led(int led) {
 /******                 AUX DISPLAY MANAGEMENT                      ****/
 /***********************************************************************/
 
-char aux_disp_buf[8];
+char aux_disp_buf[32];
 int aux_disp_offset;
+int string_len;
+int string_offset;
+    static uint32_t last;
 
 void aux_disp_print(char * str) {
-    strncpy(aux_disp_buf, str, 8);
-    aux_disp_offset = 0;   
+    strncpy(aux_disp_buf, str, 32);
+    aux_disp_offset = 0;
+    string_len = strlen(str);
+    string_offset = 0;
+    last = millis();
 }
 
 void aux_disp_update() {
-    static uint32_t last;
     int i;
-    if (aux_disp_offset == 8) return;
-    
-    if (millis() - last > 80) {
-        last = millis();
-        aux_disp_offset++;
-        if (aux_disp_offset > 8) aux_disp_offset = 8;
-    }
-    for (i = 0; i <= (8-aux_disp_offset); i++) {
-        shiftout(0);
-        shiftout(0);
-    }
-    for (i = 0; i < aux_disp_offset; i++) {
-//#define TEST
 
-#ifdef TEST
-        uint16_t tmp = 1 << offset;
-#else
-        uint16_t tmp = getdata(aux_disp_buf[i]);
-#endif
-        shiftout(tmp >> 8);
-        shiftout(tmp & 0xff);    
+    if (string_len <= 8) {   
+        if (aux_disp_offset == 8) return;
+        
+        if (millis() - last > 80) {
+            last = millis();
+            aux_disp_offset++;
+            if (aux_disp_offset > 8) aux_disp_offset = 8;
+        }
+    
+        for (i = 0; i <= (8-aux_disp_offset); i++) {
+            shiftout(0);
+            shiftout(0);
+        }
+        for (i = 0; i < aux_disp_offset; i++) {
+            uint16_t tmp = getdata(aux_disp_buf[i]);
+            shiftout(tmp >> 8);
+            shiftout(tmp & 0xff);    
+        }
+    } else {
+        if (string_len - string_offset == 8) return;
+        for (i = 0; i < 8; i++) {
+            uint16_t tmp = getdata(aux_disp_buf[i+string_offset]);
+            shiftout(tmp >> 8);
+            shiftout(tmp & 0xff);    
+        }
+        if (millis() - last > 200) {
+            last = millis();
+            string_offset++;
+            if (string_len - string_offset < 8)  (string_offset = string_len - 8);
+        }
     }
     digitalWrite(AUX_DISP_LATCH, LOW);
     digitalWrite(AUX_DISP_LATCH, HIGH);
