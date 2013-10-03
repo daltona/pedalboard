@@ -93,7 +93,7 @@ void aux_disp_update() {
         if (millis() - last > 200) {
             last = millis();
             string_offset++;
-            if (string_len - string_offset < 8)  (string_offset = string_len - 8);
+            if (string_len - string_offset <= 8)  (string_offset = string_len - 8);
         }
     }
     digitalWrite(AUX_DISP_LATCH, LOW);
@@ -106,7 +106,7 @@ uint16_t getdata(char c) {
     uint16_t mask =0;
     int i;
     
-    switch (c) {
+    switch (toupper(c)) {
         case 0 : 
         case ' ': result = 0b0000000000000000; break;
         case '0': result = 0b0010010000111111; break;

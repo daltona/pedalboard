@@ -547,15 +547,16 @@ int read_key ()
 
 void handle_analog ()
 {
+    static int newValue[EXPRESSION_COUNT];
     for (int i = 0; i < EXPRESSION_COUNT; i++) {
         if ( ! exp_data[i].enable ) continue;
-        int newValue = analogRead (exp_data[i].pin) / 8;
-        //Serial.print("a"); Serial.print(i); Serial.print("=");Serial.println(newValue);
-        if (exp_data[i].value != newValue) {
-            exp_data[i].value = newValue;
+        newValue[i] = ((analogRead (exp_data[i].pin) / 8) + 4 * newValue[i]) / 5;
+        if (exp_data[i].value != newValue[i]) {
+            Serial.print("a"); Serial.print(i); Serial.print("=");Serial.println(newValue[i]);
+            exp_data[i].value = newValue[i];
             lcd.setCursor (10, 0);
             sprintf (dispbuf, "E%d:%3d",
-                    i, newValue);
+                    i, newValue[i]);
             lcd.print(dispbuf);
             MIDI.sendControlChange (exp_data[i].cc,
                     exp_data[i].value, midi_channel);
@@ -579,15 +580,16 @@ void handle_sysex(byte * data, byte len)
     switch(s->fn) {
         case SYSEX_FN_STRING_PARAM:
             Serial.print("String: ");
-            Serial.print(*((uint16_t *) s->data));
+            Serial.print(s->data[0] << 8 | s->data[1], HEX);
             Serial.print(" ");
-            Serial.println((char *) s->data+2);
+            Serial.println((char *) &s->data[2]);
+            aux_disp_print((char *)&s->data[2]);
             break;
         case SYSEX_FN_PARAM:
             Serial.print("Param: ");
-            Serial.print(*((uint16_t *) s->data));
+            Serial.print((s->data[0] << 8) | s->data[1], HEX);
             Serial.print(" ");
-            Serial.println(*((uint16_t *) s->data+2));
+            Serial.println((s->data[2] << 8) | s->data[3], HEX);
             break;
         default:
             Serial.print("Unknow sysex ");
@@ -641,7 +643,7 @@ void loop ()
     if ( (millis() - old) > 2000 ) {
       old = millis();
       toggle++;
-      aux_disp_print(toggle & 1 ? (char*)"COUCOU  " : (char*)"LOUISE  AMOUR");
+//      aux_disp_print(toggle & 1 ? (char*)"COUCOU  " : (char*)"LOUISE  AMOUR");
     }
     
     aux_disp_update();
