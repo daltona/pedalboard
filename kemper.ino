@@ -8,11 +8,14 @@
 #include <Deuligne.h>
 #include <EEPROM.h>
 #include <MIDI.h>
+#include <SPI.h>
 
 #include "config.h"
 #include "display.h"
 #include "kemper.h"
+#include "types.h"
 
+extern struct kpa_state_ kpa_state;
 
 #define MENU_ENTER      0xA0
 #define MENU_EXIT       0xA1
@@ -27,14 +30,13 @@
 #define KEY_RIGHT       0x40
 #define KEY_ENTER       0x44
 
-#define DEBUG
-
-
+//#define DEBUG
+//#define DEBUG_MIDI
 
 int brightness;
 
 /** display buffer. */
-static char dispbuf[20];
+extern unsigned char dp;
 
 /* KEYPAD SECTION */
 const byte ROWS = 3;		//three rowsq
@@ -56,14 +58,13 @@ LiquidCrystal_I2C lcd(0x38, 16, 2);  // set the LCD address to 0x20 for a 16 cha
 
 byte midi_channel = 1;
 
-/** Switch configuration data */
-struct button_data
-{
-    int key;
-    int number;
-    int state;
-    char type;
-} cc_data;
+const char DATA_TYPES_CHARS[] = "CPST1";
+#define BUTTON_TYPE_CC        0
+#define BUTTON_TYPE_PC        1
+#define BUTTON_TYPE_CC_STATE  2
+#define BUTTON_TYPE_CC_TOGGLE 3
+#define BUTTON_TYPE_CC_ONE    4
+#define TYPE_MAX              4
 
 #define EXPRESSION_COUNT 4
 #define EXPR_DATA_LEN    1
@@ -83,7 +84,23 @@ struct expression_data
   {A4, 0, 0, 0},
 };
 
-struct button_data buttons_config[15];
+struct button_data buttons_config[15] = {
+    {1, CC_SLOT_1,         0, '1'},
+    {2, CC_SLOT_2,         0, '1'},
+    {3, CC_SLOT_3,         0, '1'},
+    {4, CC_SLOT_4,         0, '1'},
+    {5, CC_SLOT_5,         0, '1'},
+    {6, CC_STOMP_A,        0, 'T'},
+    {6, CC_STOMP_B,        0, 'T'},
+    {6, CC_STOMP_C,        0, 'T'},
+    {6, CC_STOMP_D,        0, 'T'},
+    {10, CC_TAP_TEMPO,     0, 'T'},
+    {11, CC_EFFECT_X,      0, 'T'},
+    {12, CC_EFFECT_MOD,    0, 'T'},
+    {13, CC_INCREASE_PERF, 0, 'S'},
+    {14, CC_DECREASE_PERF, 0, 'S'},
+    {15, CC_TUNER,         0, 'T'},
+};
 
 #define STATE_RUN 0
 #define STATE_MENU 1
@@ -91,9 +108,20 @@ struct button_data buttons_config[15];
 int patch = 0;
 int bank = 0;
 
-uint16_t leds_state;
 int (*current_menu) (int) = NULL;
 int (*prev_menu) (int) = NULL;
+
+
+void main_disp_print(char pos, char line, char * str) 
+{
+    lcd.setCursor(pos, line);
+    lcd.print(str);
+}
+
+void main_disp_clear(void)
+{
+    lcd.clear();
+}
 
 /***********************************************************************/
 /******                 NVM MANAGEMENT                              ****/
@@ -108,14 +136,14 @@ void load_button_data (int key)
     Serial.print (" ");
     Serial.println (EEPROM.read (key * 2 + 1), HEX);
 #endif
-    cc_data.key = key;
-    cc_data.type = EEPROM.read (key * 2);
-    if (cc_data.type != 'P' && cc_data.type != 'C' && cc_data.type != 'T')
-        cc_data.type = 'P';
-    cc_data.number = EEPROM.read (key * 2 + 1);
-    if (cc_data.number > 127 || cc_data.number < 0)
-        cc_data.number = 0;
-    buttons_config[key - 1] = cc_data;
+    buttons_config[key - 1].key = key;
+    buttons_config[key - 1].type = EEPROM.read (key * 2);
+    if (buttons_config[key - 1].type != 'P' && buttons_config[key - 1].type != 'C' && buttons_config[key - 1].type != 'T')
+        buttons_config[key - 1].type = 'P';
+    buttons_config[key - 1].number = EEPROM.read (key * 2 + 1);
+    if (buttons_config[key - 1].number > 127 || buttons_config[key - 1].number < 0)
+        buttons_config[key - 1].number = 0;
+//    buttons_config[key - 1] = cc_data;
 }
 
 void save_data (int key)
@@ -124,13 +152,13 @@ void save_data (int key)
     Serial.print ("Save data for: ");
     Serial.print (key);
     Serial.print (" ");
-    Serial.print ((char)cc_data.type);
+    Serial.print ((char)buttons_config[key - 1].type);
     Serial.print (" ");
-    Serial.println (cc_data.number, HEX);
+    Serial.println (buttons_config[key - 1].number, HEX);
 #endif
-    EEPROM.write (key * 2, cc_data.type);
-    EEPROM.write (key * 2 + 1, cc_data.number);
-    buttons_config[key - 1] = cc_data;
+    EEPROM.write (key * 2, buttons_config[key - 1].type);
+    EEPROM.write (key * 2 + 1, buttons_config[key - 1].number);
+//    buttons_config[key - 1] = cc_data;
 }
 
 void load_exp_data() {
@@ -148,14 +176,20 @@ void save_exp_data(int i) {
 }
 
 void keypadevent(KeypadEvent evt);
+void active_sense(void);
+
+extern void handle_cc(byte chan, byte cc, byte value);
+extern void handle_pc(byte chan, byte num);
 
 void setup ()
 {
     pinMode(SERIAL_CLOCK,    OUTPUT);      
+
     pinMode(SERIAL_DATA_OUT, OUTPUT);      
     pinMode(AUX_DISP_LATCH,  OUTPUT);      
-    digitalWrite(SERIAL_CLOCK, LOW);
-    digitalWrite(SERIAL_DATA_OUT, LOW);
+    pinMode(LED_LATCH,  OUTPUT);      
+    digitalWrite(AUX_DISP_LATCH, LOW);
+    //SERIAL_CLOCK = MCLR
 
 
     Wire.begin ();
@@ -164,25 +198,43 @@ void setup ()
 
     lcd.clear ();
     lcd.setCursor (0, 0);
-    lcd.print ("Pedalboard 1.0");
-    delay (1000);
+    lcd.print ("KempBoard 1.0");
     
     MIDI.begin ();
 
+#if 0
     for (int i = 1; i < 16; i++) {
         load_button_data (i);
         buttons_config[i - 1] = cc_data;
     }
-
+#endif
     load_exp_data ();
 
-    lcd.clear ();
-    MIDI.setInputChannel (MIDI_CHANNEL_OMNI);
-//    MIDI.turnThruOff ();
-//    MIDI.setHandleClock (handleClock);
-    MIDI.setHandleSystemExclusive (handle_sysex);
-    keypad.addEventListener(keypadevent);
+#if (defined DEBUG_MIDI || defined DEBUG)
+    while(!Serial) ;
+    Serial.print("Ram end: "); Serial.println(RAMEND);
+#endif
 
+    MIDI.setInputChannel (MIDI_CHANNEL_OMNI);
+    MIDI.turnThruOff ();
+    MIDI.setHandleClock (handleClock);
+    MIDI.setHandleSystemExclusive (handle_sysex);
+    MIDI.setHandleActiveSensing(handle_sense);
+    MIDI.setHandleControlChange(handle_cc);
+    MIDI.setHandleProgramChange(handle_pc);
+    keypad.addEventListener(keypadevent);
+    
+    SPI.begin();
+    SPI.setBitOrder(MSBFIRST);
+    SPI.setDataMode(SPI_MODE1);
+    SPI.setClockDivider(SPI_CLOCK_DIV16);
+
+
+    digitalWrite(SERIAL_CLOCK, LOW);
+    delay (100);
+    digitalWrite(SERIAL_CLOCK, HIGH);
+    delay (1000);
+    lcd.clear ();
 }
 
 void handleClock (void)
@@ -208,7 +260,6 @@ int expression_menu (int key)
     Serial.print ("select_cc_menu: ");
     Serial.println (key);
 #endif
-    memset (dispbuf, ' ', 16);
     switch (key)
     {
     case MENU_ENTER:
@@ -259,6 +310,7 @@ int expression_menu (int key)
     }
 
     if ( changed ) {
+        char dispbuf[17];
         changed = 0;
         snprintf (dispbuf, 16, "%1d CC%3d E%d CA EX", index, exp_data[index].cc, exp_data[index].enable);
         lcd.setCursor (0, 1);
@@ -280,8 +332,8 @@ int expression_menu (int key)
 
 int select_cc_menu (int key)
 {
-    struct button_data *data = &cc_data;
-
+    struct button_data *data = &buttons_config[key - 1];
+    char dispbuf[17];
 #ifdef DEBUG
     Serial.print ("select_cc_menu: ");
     Serial.println (key);
@@ -307,12 +359,10 @@ int select_cc_menu (int key)
     case KEY_LEFT:
     case KEY_RIGHT:
     case 11:
-      data->type = data->type == 'P' ? 'P' : 
-           data->type == 'C' ? 'P' : 'C';
+      data->type--; if (data->type < 0) data->type = 0; 
       break;
     case 12:
-      data->type = data->type == 'P' ? 'C' : 
-           data->type == 'C' ? 'T' : 'T';
+      data->type++; if (data->type > TYPE_MAX) data->type = TYPE_MAX;
       break;
     case KEY_ENTER:
     case 15:
@@ -322,7 +372,7 @@ int select_cc_menu (int key)
       break;
 //      if (key > 0 && key < FUNCTION_KEY_OFFSET) load_button_data (key);
     }
-    snprintf (dispbuf, 16, "%cC# %3d         ", data->type, data->number);
+    snprintf (dispbuf, 16, "%cC# %3d         ", DATA_TYPES_CHARS[data->type], data->number);
     lcd.setCursor (0, 1);
     lcd.print (dispbuf);
 #ifdef DEBUG
@@ -334,19 +384,21 @@ int select_cc_menu (int key)
 int assign_menu (int key)
 {
     int ret = MENU_CONTINUE;
+    static int button = -1;
+    char dispbuf[17];
     switch (key) {
     case MENU_ENTER:
-        cc_data.key = -1;
+        button = -1;
         lcd.clear ();
         lcd.setCursor (0, 0);
         lcd.print ("Select key      ");
         break;
 
     default:
-        if (key < FUNCTION_KEY_OFFSET && key > 0 && cc_data.key == -1) {
-            cc_data.key = key;
+        if (key < FUNCTION_KEY_OFFSET && key > 0 && button == -1) {
+            button = key;
             load_button_data(key);
-	} else if (cc_data.key != -1) {
+	} else if (button != -1) {
             ret = select_cc_menu (key);
 #ifdef DEBUG
             Serial.print ("return: ");
@@ -358,8 +410,8 @@ int assign_menu (int key)
         break;
     }
 
-    if (cc_data.key != -1) {
-        snprintf (dispbuf, 16, "Button: %2d      ", cc_data.key);
+    if (button != -1) {
+        snprintf (dispbuf, 16, "Button: %2d      ", button);
     } else {
         sprintf (dispbuf, "Button: <Press>");
     }
@@ -368,41 +420,9 @@ int assign_menu (int key)
     return ret;
 }
 
-extern int offset;
-
-int config_menu(int key)
-{
-    int ret = MENU_CONTINUE;
-
-    switch(key) {
-        case MENU_ENTER: break;
-        case 11: /* left */
-            offset --; if (offset < 0) offset = 15; break;
-        case 12: /* right */
-            offset ++; if (offset > 15) offset = 0; break;
-        case 13: /* down */
-            break;
-        case 14: /* up */
-            break;
-        case 15: /* enter */
-            return MENU_EXIT;
-            break;
-    }
-#ifdef DEBUG
-    Serial.print("Offset: "); Serial.println(offset);
-#endif
-    lcd.setCursor (0, 0);
-    lcd.print ("14 seg Offset   ");
-
-    snprintf (dispbuf, 16, "Offset %2d       ", offset);
-    lcd.setCursor (0, 1);
-    lcd.print (dispbuf);
-
-    return ret;
-}
-
 int brightness_menu(int key)
 {
+    char dispbuf[17];
     int ret = MENU_CONTINUE;
 
     switch(key) {
@@ -445,7 +465,6 @@ struct menu_item {
 struct menu_item main_items[] = {
     {"Assign", assign_menu},
     {"Expression", expression_menu},
-    {"Config", config_menu},
     {"Brightness", brightness_menu},
     {"Exit", menu_exit},
 };
@@ -453,6 +472,7 @@ struct menu_item main_items[] = {
 #define MENU_SIZE (sizeof(main_items)/sizeof(struct menu_item))
 int main_menu(int key)
 {
+    char dispbuf[17];
     int ret = MENU_CONTINUE;
     static int index;
 
@@ -504,6 +524,8 @@ int run_menu (int key)
 
 byte keyState;
 byte currentKey;
+uint32_t refresh_display;
+uint32_t refresh_aux_display;
 
 void keypadevent(KeypadEvent evt)
 {
@@ -512,8 +534,15 @@ void keypadevent(KeypadEvent evt)
 #define KEYPAD_STATE_HELD    1
     static int8_t state = KEYPAD_STATE_DEFAULT;
 
+
+    if (keyState == PRESSED) {
+//        digitalWrite(AUX_DISP_LATCH, HIGH);
+    } else if (keyState == RELEASED || keyState == IDLE) {
+//        digitalWrite(AUX_DISP_LATCH, LOW);
+    }
+
 #ifdef DEBUG
-    Serial.print("keyevent : "); Serial.print(evt, HEX); Serial.print(" "); Serial.println(keyState, HEX);
+//    Serial.print("keyevent : "); Serial.print(evt, HEX); Serial.print(" "); Serial.println(keyState, HEX);
 #endif
     if (keyState == RELEASED  && state == KEYPAD_STATE_DEFAULT) {
         currentKey = evt;
@@ -538,7 +567,11 @@ int read_key ()
     if (currentKey != -1 && keyState == RELEASED) {
         key = currentKey;
         currentKey = -1;
-        Serial.print("Key: "); Serial.println(key, HEX);
+#ifdef DEBUG
+        if (key != -1) {
+            Serial.print("Key: "); Serial.println(key, HEX);
+        }
+#endif
         return key;
     }
 
@@ -548,149 +581,182 @@ int read_key ()
 void handle_analog ()
 {
     static int newValue[EXPRESSION_COUNT];
+    char dispbuf[16];
     for (int i = 0; i < EXPRESSION_COUNT; i++) {
         if ( ! exp_data[i].enable ) continue;
         newValue[i] = ((analogRead (exp_data[i].pin) / 8) + 4 * newValue[i]) / 5;
         if (exp_data[i].value != newValue[i]) {
+#ifdef DEBUG
             Serial.print("a"); Serial.print(i); Serial.print("=");Serial.println(newValue[i]);
+#endif
             exp_data[i].value = newValue[i];
             lcd.setCursor (10, 0);
             sprintf (dispbuf, "E%d:%3d",
-                    i, newValue[i]);
+                    i, exp_data[i].value * 3);
             lcd.print(dispbuf);
             MIDI.sendControlChange (exp_data[i].cc,
-                    exp_data[i].value, midi_channel);
+                    exp_data[i].value * 3, midi_channel);
 	}
     }
 }
-
-/*********************************************************************/
-/*********            KEMPER SYSEX HANDLING                    *******/
-/*********************************************************************/
-struct sys_ex {
-    char header[5];
-    unsigned char fn;
-    char id;
-    char data[128];
-} sysex_buffer = {{ 0x00, 0x20, 0x33, 0x02, 0x7f}, 0, 0, {0}, };
-
-void handle_sysex(byte * data, byte len)
-{
-    struct sys_ex * s = (struct sys_ex *) (data+1);
-    switch(s->fn) {
-        case SYSEX_FN_STRING_PARAM:
-            Serial.print("String: ");
-            Serial.print(s->data[0] << 8 | s->data[1], HEX);
-            Serial.print(" ");
-            Serial.println((char *) &s->data[2]);
-            aux_disp_print((char *)&s->data[2]);
-            break;
-        case SYSEX_FN_PARAM:
-            Serial.print("Param: ");
-            Serial.print((s->data[0] << 8) | s->data[1], HEX);
-            Serial.print(" ");
-            Serial.println((s->data[2] << 8) | s->data[3], HEX);
-            break;
-        default:
-            Serial.print("Unknow sysex ");
-            Serial.println(s->fn, HEX);
-            break;
-    }
-}
-
-void request_rig_name()
-{
-    sysex_buffer.fn = SYSEX_FN_REQUEST_STRING;
-    * ((uint16_t*)sysex_buffer.data) = STRING_ID_RIG_NAME << 8;
-    MIDI.sendSysEx(SYSEX_HEADER_SIZE+2, (const byte *)&sysex_buffer, 0);
-}
-
-void request_stomp_state()
-{
-    sysex_buffer.fn = SYSEX_FN_REQUEST_PARAM;
-    sysex_buffer.data[0] = STOMP_A_PAGE;
-    sysex_buffer.data[1] = ON_OFF_PARAM;
-    MIDI.sendSysEx(SYSEX_HEADER_SIZE+2, (const byte *)&sysex_buffer, 0);
-}
-
+#define DEBUG_BUTTON
 void handle_button (struct button_data *d)
-{
+{ 
+    if (d->key == 13) {
+        MIDI.sendControlChange (49, 0, midi_channel);
+        lcd.clear();
+        return;
+    } else if (d->key == 14) {
+        MIDI.sendControlChange (48, 0, midi_channel);
+        lcd.clear();
+        return;
+    }
     if (d->type == 'P') {
         MIDI.sendProgramChange (d->number, midi_channel);
+#ifdef DEBUG_BUTTON
         Serial.print("Send program change " ); Serial.println(d->number);
-    } else if (d->type == 'C') {
+#endif
+    } else if (d->type == 'C' || d->type == '1') {
         MIDI.sendControlChange (d->number, 1, midi_channel);
+#ifdef DEBUG_BUTTON
         Serial.print("Send control change " ); Serial.println(d->number);
+#endif
     } else if (d->type == 'T') {
         MIDI.sendControlChange (d->number, d->state == 0 ? 1 : 0, midi_channel);
         d->state = d->state ? 0 : 1;
+#ifdef DEBUG_BUTTON
         Serial.print("Send toggle control change " ); Serial.print(d->state); Serial.print(" " ); Serial.println(d->number);
+#endif
     }
-    request_rig_name();
-    request_stomp_state();
 }
 
 static int toggle = 0;
 static uint32_t old = 0;
+static int g_state = STATE_RUN;
+static uint32_t last_disp_update = 0; 
+extern unsigned char dp;
+uint16_t old_leds;
 
 void loop ()
 {
-    static int state = STATE_RUN;
     static char changed = 1;
     
     int key = read_key ();
-
-    if ( (millis() - old) > 2000 ) {
-      old = millis();
-      toggle++;
-//      aux_disp_print(toggle & 1 ? (char*)"COUCOU  " : (char*)"LOUISE  AMOUR");
+    
+    if(millis() - last_disp_update > 50) {
+        aux_disp_update();
+        update_leds();
+        last_disp_update = millis();    
+/*
+lcd.setCursor (10, 1);
+            sprintf(dispbuf, "%04x", led_state);
+            lcd.print(dispbuf);
+            */
     }
+    MIDI.read ();
+    kemper_process();
     
-    aux_disp_update();
-    
-    switch (state) {
+    switch (g_state) {
     case STATE_RUN:
         if (key == KEY_ENTER) {
-            state = STATE_MENU;
+            g_state = STATE_MENU;
             run_menu (MENU_ENTER);
             lcd.clear ();
             break;
         } else if (key > 0 && key < FUNCTION_KEY_OFFSET) {
             patch = key;
+#ifdef SHOW_MSG
             lcd.setCursor (10, 0);
             sprintf (dispbuf, "%cC:%3d",
                     buttons_config[key - 1].type,
                     buttons_config[key - 1].number);
             lcd.print (dispbuf);
+#endif
             handle_button(&buttons_config[key-1]);
-            changed = 1;
-        } else if ( key == KEY_UP ) {
-          bank++;
-            changed = 1;
-        } else if ( key == KEY_DOWN ) {
-          bank--;
-            changed = 1;
+            if(key == 15) {
+                if(buttons_config[14].state == 1) {
+                    old_leds = get_leds();
+                    set_leds(2);
+                } else {
+                    set_leds(old_leds & ~2);
+                }
+                refresh_aux_display = refresh_display = millis() + 100;
+                lcd.clear();
+            }
         }
-        if (changed) {
-            lcd.setCursor (0, 0);
-            lcd.print ("RUN ");
-            lcd.setCursor (0, 1);
-            snprintf (dispbuf, 16, "B%02d P%02d", bank, patch);
-            lcd.print (dispbuf);
-            changed = 0;
+        if (buttons_config[14].state == 1) {
+#define TUNE_STEP 200
+            int t = ((t / 4 * 3) + kpa_state.tune / 4);
+            if (t < 0) {
+                if ( t < -(TUNE_STEP * 4))
+                    dp = 0xf;
+                else if (t < -(TUNE_STEP * 3))
+                    dp = 0xe;
+                else if (t < -(TUNE_STEP * 2))
+                    dp = 0xc;
+                else if (t < -(TUNE_STEP))
+                    dp = 0x8;
+                else dp = 0;
+            } else if (t > 0) {
+                if (t > (TUNE_STEP * 4))
+                    dp = 0xf0;
+                else if (t > (TUNE_STEP * 3))
+                    dp = 0x70;
+                else if (t > (TUNE_STEP * 2))
+                    dp = 0x30;
+                else if (t > (TUNE_STEP))
+                    dp = 0x10;
+                else dp = 0;
+            } else dp = 0;
+            
+            if (millis() - old > 300) {
+                char dispbuf[17];
+                old = millis();      
+                char left, right;
+
+                if (t < 0) 
+                    left = '>';
+                else if (t < 200)
+                    left = '>';
+                else left = ' ';
+                
+                if (t > 0)
+                    right = '<';
+                else if (t > -200)
+                    right = '<';
+                else right = ' ';
+                
+                snprintf(dispbuf, 8, " %c %s %c ", left, kpa_state.note, right);
+                aux_disp_fixed(dispbuf);
+                lcd.setCursor(0,0);
+                lcd.print(dispbuf);
+                lcd.print(t);
+            }
+        } else {
+            if (millis() > refresh_display) {
+                refresh_display = millis() + 5000;
+                lcd.setCursor (0, 0);
+                lcd.print(kpa_state.perf_name);
+                lcd.setCursor (0, 1);
+                lcd.print(kpa_state.stomps);
+            }
+            if (millis() > refresh_aux_display) {
+                refresh_aux_display = millis() + 5000;
+                kpa_state.showing_rig = 0;
+//                dp = kpa_state.effects & 0xc0;
+                aux_disp_print(kpa_state.slot_name);
+            }
         }
-        //aux_disp_print(dispbuf);
         break;
     case STATE_MENU:
         if (MENU_EXIT == run_menu (key)) {
             changed = 1;
-            state = STATE_RUN;
+            g_state = STATE_RUN;
             lcd.clear ();
         }
         break;
     }
 
     handle_analog ();
-    MIDI.read ();
 }
 

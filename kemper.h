@@ -59,6 +59,18 @@
 71 x Sets Reverb Time to x
 72 x Sets Amplifier Gain to x
 */
+#define CC_STOMP_A            17
+#define CC_STOMP_B            18
+#define CC_STOMP_C            19
+#define CC_STOMP_D            20
+
+#define CC_EFFECT_X           22
+#define CC_EFFECT_MOD         24
+#define CC_DELAY              26
+#define CC_REVERB             28
+
+#define CC_TAP_TEMPO          30
+#define CC_TUNER              31
 
 #define CC_INCREASE_PERF      48
 #define CC_DECREASE_PERF      49
@@ -69,13 +81,13 @@
 #define CC_SLOT_4             53
 #define CC_SLOT_5             54
 
-#define CC_SET_DELAY_MIX      68
-#define CC_SET_DELAY_FBK      69
-#define CC_SET_REVERB_MIX     70
-#define CC_SET_REVERB_TIME    71
-#define CC_SET_AMPLIFIER_GAIN 72
+#define CC_SET_DELAY_MIX               68
+#define CC_SET_DELAY_FBK               69
+#define CC_SET_REVERB_MIX              70
+#define CC_SET_REVERB_TIME             71
+#define CC_SET_AMPLIFIER_GAIN          72
 
-#define SYSEX_HEADER_SIZE 7
+#define SYSEX_HEADER_SIZE              7
 
 #define SYSEX_FN_PARAM                 0x01
 #define SYSEX_FN_M_PARAM               0x02
@@ -83,13 +95,22 @@
 #define SYSEX_FN_BLOB                  0x04
 #define SYSEX_FN_EXT_PARAM             0x06
 #define SYSEX_FN_EXT_STRING_PARAM      0x07
+#define SYSEX_FN_EFFECT_CONFIG         0x3c
+#define SYSEX_FN_ACK                   0x7e
 
 #define SYSEX_FN_REQUEST_PARAM         0x41
 #define SYSEX_FN_REQUEST_M_PARAM       0x42
 #define SYSEX_FN_REQUEST_STRING        0x43
-#define SYSEX_FN_REQUEST_EXT_STRING    0x43
+#define SYSEX_FN_REQUEST_EXT_PARAM     0x46
+#define SYSEX_FN_REQUEST_EXT_STRING    0x47
 
-#define STRING_ID_RIG_NAME           0x0001
+#define STRING_ID_RIG_NAME             0x0001
+#define STRING_ID_PERF_NAME            0x4000
+#define STRING_ID_SLOT1_NAME           0x4001
+#define STRING_ID_SLOT2_NAME           0x4002
+#define STRING_ID_SLOT3_NAME           0x4003
+#define STRING_ID_SLOT4_NAME           0x4004
+#define STRING_ID_SLOT5_NAME           0x4005
 
 
 #define STOMP_A_PAGE                   50
@@ -98,5 +119,37 @@
 #define STOMP_D_PAGE                   53
 
 #define ON_OFF_PARAM                   03
+
+
+#define PARAM_STOMP_A_TYPE    0x1900
+#define PARAM_STOMP_A_STATE   0x1903
+#define PARAM_STOMP_B_TYPE    0x1980
+#define PARAM_STOMP_B_STATE   0x1983
+#define PARAM_STOMP_C_TYPE    0x1A00
+#define PARAM_STOMP_C_STATE   0x1A03
+#define PARAM_STOMP_D_TYPE    0x1A80
+#define PARAM_STOMP_D_STATE   0x1A83
+
+#define PARAM_STOMP_X_TYPE    0x1C00
+#define PARAM_STOMP_X_STATE   0x1C03
+#define PARAM_STOMP_MOD_TYPE  0x1D00
+#define PARAM_STOMP_MOD_STATE 0x1D03
+#define PARAM_DELAY_STATE     0x2502
+#define PARAM_REVERB_STATE    0x2582
+
+void handle_sysex(byte * data, byte len);
+void handle_sense(void);
+void kemper_process(void);
+
+struct kpa_state_ {
+    int tune;
+    char * note;
+    char stomps[17];
+    char perf_name[20];
+    char slot_name[32];
+    uint8_t effects;
+    uint8_t showing_rig:1;
+    uint8_t enabled_slots:7;
+};
 
 #endif
