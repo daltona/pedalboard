@@ -16,6 +16,9 @@ extern int get_selected_slot();
 /******                 LEDS MANAGEMENT                             ****/
 /***********************************************************************/
 
+/**
+ * Send led state to the led shift registers.
+ */
 void update_leds() {    
     led_state &= ~0x7c;
     led_state |= (1 << (get_selected_slot() + 2));
@@ -71,6 +74,10 @@ static uint32_t last;
 int current_pos = 0;
 char enable_updates = 1;
 
+/**
+ * Set buffer to be displayed (and scrolled) in the 8 char 
+ * 14 digit display. 
+ */
 void aux_disp_print(char * str) {
     strncpy(aux_disp_buf, str, 32);
     aux_disp_offset = 0;
@@ -79,11 +86,17 @@ void aux_disp_print(char * str) {
     enable_updates = 1;
 }
 
+/**
+ * Enabled scrolling in the 14 seg display.
+ */
 void aux_disp_refresh() {
     enable_updates = 1;
     aux_disp_offset = 0;    
 }
 
+/**
+ * Send data to the 14seg display.
+ */
 void aux_disp_write(char * str) {
     int len = strlen(str) > 8 ? 8 : strlen(str);
     int i;
@@ -107,6 +120,10 @@ void aux_disp_write(char * str) {
     digitalWrite(AUX_DISP_LATCH, LOW);
 }
 
+/**
+ * Set text to show on 14seg display and disable
+ * scrolling.
+ */
 void aux_disp_fixed(char * str) {
     enable_updates = 0;
     aux_disp_write(str);
@@ -131,6 +148,10 @@ void aux_disp_update() {
     }
 }
 
+/**
+ * Converts a character to the corresponding bit sequence to
+ * send to the 14segments display.
+ */
 uint16_t getdata(char c) {        
     uint16_t result = 0;
     uint16_t mask =0;

@@ -33,13 +33,15 @@ The board:
 
      This display is connected with 3 GPIO in a Synchronous serial mode.
 
+     http://www.embeddedadventures.com/14_segment_led_display_DSP-0801-BLUE.html
+
    * Buttons
 
      Arranged in a 3x15 matrix and uses Keypad library.
 
    * One Led per button.
 
-     Connected throuh 595 shift registers. 
+     Connected throuh 74HC595 shift registers. 
 
      Use same SCLK / SDATA as the 14 digit led display with a second latch gpio.
 

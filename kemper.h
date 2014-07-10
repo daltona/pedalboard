@@ -142,14 +142,14 @@ void handle_sense(void);
 void kemper_process(void);
 
 struct kpa_state_ {
-    int tune;
-    char * note;
-    char stomps[17];
-    char perf_name[20];
-    char slot_name[32];
-    uint8_t effects;
-    uint8_t showing_rig:1;
-    uint8_t enabled_slots:7;
+    int tune;                /* Holds the current tune value */
+    char * note;             /* Holds the current tunner note */
+    char stomps[17];         /* Used to display the state changes of the stomps */
+    char perf_name[20];      /* Name of the current rig */
+    char slot_name[32];      /* Name of the current performance */
+    uint8_t effects;         /* Current state of the stomps */
+    uint8_t showing_rig:1;   /* Used to indicate the rig name when rig is switched */
+    uint8_t enabled_slots:7; /* Used to indicated wich slots are defined */
 };
 
 #endif

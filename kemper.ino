@@ -740,6 +740,7 @@ lcd.setCursor (10, 1);
                 lcd.setCursor (0, 1);
                 lcd.print(kpa_state.stomps);
             }
+
             if (millis() > refresh_aux_display) {
                 refresh_aux_display = millis() + 5000;
                 kpa_state.showing_rig = 0;
