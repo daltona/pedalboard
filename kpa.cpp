@@ -192,61 +192,67 @@ void config_stomp(uint16_t param, uint16_t value, char * name, char enabled)
 char handle_param(int param, int value ) 
 {
     char handled = 1;
+    int index = -1;
+
     switch(param) {
     case PARAM_STOMP_A_STATE:
         buttons_config[5].state = value;
         SET_EFFECTS(value, 1);
-        sprintf(kpa_state.stomps, "%s %s", scfg[0].name, value ? "ON" : "OFF");
+	index = 0;
         value ? set_led_mask(0x80) : clear_led_mask(0x80);
         break;      
     case PARAM_STOMP_B_STATE:
         buttons_config[6].state = value;
         SET_EFFECTS(value, 2);
-        sprintf(kpa_state.stomps, "%s %s", scfg[1].name, value ? "ON" : "OFF");
+	index = 1;
         value ? set_led_mask(0x100) : clear_led_mask(0x100);
         break;      
     case PARAM_STOMP_C_STATE:
         buttons_config[7].state = value;
         SET_EFFECTS(value, 4);
-        sprintf(kpa_state.stomps, "%s %s", scfg[2].name, value ? "ON" : "OFF");
+        index = 2;
         value ? set_led_mask(0x200) : clear_led_mask(0x200);
         break;      
     case PARAM_STOMP_D_STATE:
         buttons_config[8].state = value;
         SET_EFFECTS(value, 8);
-        sprintf(kpa_state.stomps, "%s %s", scfg[3].name, value ? "ON" : "OFF");
+        index = 3;
         value ? set_led_mask(0x400) : clear_led_mask(0x400);
         break;      
     case PARAM_STOMP_X_STATE:
         SET_EFFECTS(value, 0x10);
         buttons_config[10].state = value;
-        sprintf(kpa_state.stomps, "%s %s", scfg[4].name, value ? "ON" : "OFF");
+        index = 4;
         value ? set_led_mask(0x1000) : clear_led_mask(0x1000);
         break;      
     case PARAM_STOMP_MOD_STATE:
         SET_EFFECTS(value, 0x20);
         buttons_config[11].state = value;
-        sprintf(kpa_state.stomps, "%s %s", scfg[5].name, value ? "ON" : "OFF");
+        index = 5;
         value ? set_led_mask(0x2000) : clear_led_mask(0x2000);
         break;      
     case PARAM_DELAY_STATE:
         SET_EFFECTS(value, 0x40);
-        sprintf(kpa_state.stomps, "%s %s", scfg[6].name, value ? "ON" : "OFF");
+        index = 6;
         value ? set_led_mask(0x4000) : clear_led_mask(0x4000);
         break;      
     case PARAM_REVERB_STATE:
         SET_EFFECTS(value, 0x80);
-        sprintf(kpa_state.stomps, "%s %s", scfg[7].name, value ? "ON" : "OFF");
+        index = 7;
         value ? set_led_mask(0x8000) : clear_led_mask(0x8000);
         break;      
     default:
         handled = 0;
         break;
     }
+    if (handled) {
+        // Display the changed effect
+        sprintf(kpa_state.stomps, "%s %s", scfg[index].name, value ? "ON" : "OFF");
+        refresh_display = millis() + 100;
+    }
     for (int i = strlen(kpa_state.stomps); i < 16; i++) {
         kpa_state.stomps[i] = ' ';
     }
-    refresh_display = millis() + 100;
     return handled;
 }
 
